@@ -1,87 +1,115 @@
-#include <boost/beast/core.hpp>
-#include <boost/beast/websocket.hpp>
-#include <boost/asio/connect.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <cstdlib>
-#include <iostream>
-#include <string>
+#include "socket.h"
+#include "messagequeue.h"
+#include "order.h"
 
-namespace beast = boost::beast;         // from <boost/beast.hpp>
-namespace http = beast::http;           // from <boost/beast/http.hpp>
-namespace websocket = beast::websocket; // from <boost/beast/websocket.hpp>
-namespace net = boost::asio;            // from <boost/asio.hpp>
-using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
+// STL
+#include <vector>
+#include <thread>
+#include <type_traits>
+#include <map>
+#include <mutex>
+#include <memory>
+
+// Boost libraries
+#include <boost/json/parse.hpp>
+#include <boost/json/src.hpp>
+#include <boost/describe.hpp>
+
+// curses
+#include <curses.h>
+
+MessageQueue<Order> orderQueue;
+struct info
+{
+    std::string feed;
+    std::string product_id;
+    std::vector<std::vector<double>> bids;
+    std::vector<std::vector<double>> asks;
+};
+BOOST_DESCRIBE_STRUCT(info, (), (feed, product_id, bids, asks));
+
+struct snapshot : info
+{
+    int numLevels;
+};
+BOOST_DESCRIBE_STRUCT(snapshot, (), (numLevels, feed, product_id, bids, asks));
+
+void consumeMessage(std::string &&msg)
+{
+    // std::cout << msg << std::endl;
+    auto jv = boost::json::parse(msg);
+    auto object = jv.as_object();
+    if (object.find("event") != object.end())
+        return;
+
+    // std::cout << msg << std::endl;
+    auto newjv = boost::json::parse(msg);
+    info nf;
+    if (object.find("numLevels") != object.end())
+        nf = boost::json::value_to<snapshot>(newjv);
+    else
+        nf = boost::json::value_to<info>(newjv);
+    for (auto order : nf.asks)
+        orderQueue.send(Order(order[0], order[1], Side::ask));
+
+    for (auto order : nf.bids)
+        orderQueue.send(Order(order[0], order[1], Side::bid));
+
+    // auto nf = boost::json::value_to<info>(jv);
+}
+
+void readMessageFromWebSocket()
+{
+    Socket cryptoSocket("www.cryptofacilities.com", "/ws/v1");
+    cryptoSocket.Start();
+    auto const subscribeXBT = R"({"event":"subscribe","feed":"book_ui_1","product_ids":["PI_XBTUSD"]})";
+    cryptoSocket.Write(subscribeXBT);
+
+    while (1)
+    {
+        cryptoSocket.Read();
+        std::string message = std::move(cryptoSocket.Message());
+        consumeMessage(std::move(message));
+        cryptoSocket.ClearBuffer();
+    }
+
+    auto const unsubscribeXBT = R"({"event":"unsubscribe","feed":"book_ui_1","product_ids":["PI_XBTUSD"]})";
+    cryptoSocket.Write(unsubscribeXBT);
+    cryptoSocket.Close();
+}
+
+void processFromMessageQueue(std::shared_ptr<Orderbook> orderbook)
+{
+    int steps = 100;
+    while (steps--)
+    {
+        Order order = orderQueue.receive();
+        orderbook->insertOrder(std::move(order));
+        std::cout << "step " << steps << "= " << order;
+        // std::this_thread::sleep_for(1ms);
+    }
+    // std::cout << *orderbook;
+}
 
 // Sends a WebSocket message and prints the response
 int main(int argc, char **argv)
 {
-    try
-    {
-        // Check command line arguments.
-        if (argc != 3)
-        {
-            std::cerr << "Usage: websocket-client-sync <host> <port> <text>\n"
-                      << "Example:\n"
-                      << "    websocket-client-sync echo.websocket.org 80 \"Hello, world!\"\n";
-            return EXIT_FAILURE;
-        }
-        std::string host = argv[1];
-        auto const port = argv[2];
-        // auto const text = argv[3];
+    std::shared_ptr<Orderbook> orderbook = std::make_shared<Orderbook>();
+    std::thread readFromWS(readMessageFromWebSocket);
+    std::thread processMessages(processFromMessageQueue, orderbook);
+    // int steps = 1000;
+    // while (steps--)
+    // {
+    //     Order order = orderQueue.receive();
+    //     // std::cout << order;
+    //     orderbook.insertOrder(std::move(order));
+    // }
+    // std::cout << orderbook;
+    readFromWS.join();
+    processMessages.join();
 
-        // The io_context is required for all I/O
-        net::io_context ioc;
+    initscr(); // start ncurses
 
-        // These objects perform our I/O
-        tcp::resolver resolver{ioc};
-        websocket::stream<tcp::socket> ws{ioc};
-
-        // Look up the domain name
-        auto const results = resolver.resolve(host, port);
-
-        // Make the connection on the IP address we get from a lookup
-        auto ep = net::connect(ws.next_layer(), results);
-
-        // Update the host_ string. This will provide the value of the
-        // Host HTTP header during the WebSocket handshake.
-        // See https://tools.ietf.org/html/rfc7230#section-5.4
-        host += ':' + std::to_string(ep.port());
-
-        // Set a decorator to change the User-Agent of the handshake
-        ws.set_option(websocket::stream_base::decorator(
-            [](websocket::request_type &req)
-            {
-                req.set(http::field::user_agent,
-                        std::string(BOOST_BEAST_VERSION_STRING) +
-                            " websocket-client-coro");
-            }));
-
-        // Perform the websocket handshake
-        ws.handshake(host, "/ws/v1");
-
-        auto const text = "{\"event\":\"subscribe\",\"feed\":\"book_ui_1\",\"product_ids\":[\"PI_XBTUSD\"]}";
-
-        // Send the message
-        ws.write(net::buffer(std::string(text)));
-
-        // This buffer will hold the incoming message
-        beast::flat_buffer buffer;
-
-        // Read a message into our buffer
-        ws.read(buffer);
-
-        // Close the WebSocket connection
-        ws.close(websocket::close_code::normal);
-
-        // If we get here then the connection is closed gracefully
-
-        // The make_printable() function helps print a ConstBufferSequence
-        std::cout << beast::make_printable(buffer.data()) << std::endl;
-    }
-    catch (std::exception const &e)
-    {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return EXIT_FAILURE;
-    }
-    return EXIT_SUCCESS;
+    // readMessageFromWebSocket();
+    return 0;
 }
