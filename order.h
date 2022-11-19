@@ -1,3 +1,5 @@
+#ifndef ORDER_H
+#define ORDER_H
 
 #include <iostream>
 #include <vector>
@@ -5,6 +7,8 @@
 #include <map>
 #include <deque>
 #include <string>
+#include <chrono>
+#include <limits>
 
 enum Side
 {
@@ -70,6 +74,40 @@ public:
         return _orders;
     }
 
+    std::map<double, double> BidsByTick()
+    {
+        return _bidsQuantityByTick;
+    }
+
+    std::map<double, double> AsksByTick()
+    {
+        return _asksQuantityByTick;
+    }
+
+    std::pair<double, double> AsksMinMaxPrice()
+    {
+        double maxi = std::numeric_limits<double>::min(), mini = std::numeric_limits<double>::max();
+        for (auto it : _asksByTick)
+        {
+            maxi = std::max(maxi, it.first);
+            mini = std::min(mini, it.first);
+        }
+
+        return std::make_pair(mini, maxi);
+    }
+
+    std::pair<double, double> BidsMinMaxPrice()
+    {
+        double maxi = std::numeric_limits<double>::min(), mini = std::numeric_limits<double>::max();
+        for (auto it : _bidsByTick)
+        {
+            maxi = std::max(maxi, it.first);
+            mini = std::min(mini, it.first);
+        }
+
+        return std::make_pair(mini, maxi);
+    }
+
     friend std::ostream &operator<<(std::ostream &os, const Orderbook &orderbook)
     {
         os << "Size _asks = " << orderbook._asks.size() << std::endl;
@@ -107,8 +145,10 @@ private:
     std::map<double, double> _asksQuantityByTick;
 
     std::deque<Order> _orders;
-    size_t _MAX_ORDERS{1000};
+    size_t _MAX_ORDERS{100};
 
     std::vector<Order> _bids;
     std::vector<Order> _asks;
 };
+
+#endif

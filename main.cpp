@@ -1,6 +1,7 @@
 #include "socket.h"
 #include "messagequeue.h"
 #include "order.h"
+#include "ncursesdisplay.h"
 
 // STL
 #include <vector>
@@ -36,13 +37,11 @@ BOOST_DESCRIBE_STRUCT(snapshot, (), (numLevels, feed, product_id, bids, asks));
 
 void consumeMessage(std::string &&msg)
 {
-    // std::cout << msg << std::endl;
     auto jv = boost::json::parse(msg);
     auto object = jv.as_object();
     if (object.find("event") != object.end())
         return;
 
-    // std::cout << msg << std::endl;
     auto newjv = boost::json::parse(msg);
     info nf;
     if (object.find("numLevels") != object.end())
@@ -54,8 +53,6 @@ void consumeMessage(std::string &&msg)
 
     for (auto order : nf.bids)
         orderQueue.send(Order(order[0], order[1], Side::bid));
-
-    // auto nf = boost::json::value_to<info>(jv);
 }
 
 void readMessageFromWebSocket()
@@ -80,36 +77,23 @@ void readMessageFromWebSocket()
 
 void processFromMessageQueue(std::shared_ptr<Orderbook> orderbook)
 {
-    int steps = 100;
-    while (steps--)
+    while (1)
     {
         Order order = orderQueue.receive();
         orderbook->insertOrder(std::move(order));
-        std::cout << "step " << steps << "= " << order;
-        // std::this_thread::sleep_for(1ms);
     }
-    // std::cout << *orderbook;
 }
 
-// Sends a WebSocket message and prints the response
 int main(int argc, char **argv)
 {
     std::shared_ptr<Orderbook> orderbook = std::make_shared<Orderbook>();
     std::thread readFromWS(readMessageFromWebSocket);
     std::thread processMessages(processFromMessageQueue, orderbook);
-    // int steps = 1000;
-    // while (steps--)
-    // {
-    //     Order order = orderQueue.receive();
-    //     // std::cout << order;
-    //     orderbook.insertOrder(std::move(order));
-    // }
-    // std::cout << orderbook;
+
+    NCursesDisplay::Display(orderbook);
+
     readFromWS.join();
     processMessages.join();
 
-    initscr(); // start ncurses
-
-    // readMessageFromWebSocket();
     return 0;
 }

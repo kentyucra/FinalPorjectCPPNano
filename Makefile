@@ -1,2 +1,2 @@
 all:
-	g++ -g main.cpp socket.h -pthread -lcrypto -lssl -lncurses -o finalproject.o
+	g++ -g main.cpp order.h socket.h ncursesdisplay.h -pthread -lcrypto -lssl -lncurses -o finalproject.o
