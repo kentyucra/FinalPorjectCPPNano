@@ -26,6 +26,7 @@ GNU Make 4.2.1
 
   ```bash
   git clone --recursive https://github.com/boostorg/boost.git
+  cd boost
   sudo ./bootstrap.sh --prefix=/usr/local
   sudo ./b2 install
   sudo apt install libssl-dev
