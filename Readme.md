@@ -22,10 +22,26 @@ GNU Make 4.2.1
 
 - Boost:
 
+  - How to install
+
+  ```bash
+  git clone --recursive https://github.com/boostorg/boost.git
+  sudo ./bootstrap.sh --prefix=/usr/local
+  sudo ./b2 install
+  sudo apt install libssl-dev
+  ```
+
+  - Check version
+
+  ```bash
+  linux-ubuntu-20.04$ dpkg -s libboost-dev | grep "Version"
+  Boost version (currently 1.71).
+  ```
+
+- NCurses
+
 ```bash
-linux-ubuntu-20.04$ sudo apt install libboost-all-dev
-linux-ubuntu-20.04$ dpkg -s libboost-dev | grep "Version"
-Boost version (currently 1.71).
+sudo apt install libncurses5-dev libncursesw5-dev
 ```
 
 ## Diagram of system
